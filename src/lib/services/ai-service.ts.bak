@@ -1,0 +1,243 @@
+import axios from "axios";
+
+// Gemini API 
+const API_URL = process.env.GEMINI_API_URL;
+const API_KEY = process.env.GEMINI_API_KEY;
+
+/**
+ * 
+ * @param text PDF 
+ * @returns 
+ */
+export async function extractQuestionsWithAI(text: string) {
+  try {
+    // API 
+    if (!API_URL) {
+      console.error('');
+      throw new Error('');
+    }
+    
+    if (!API_KEY) {
+      console.error('');
+      throw new Error('');
+    }
+    
+    console.log('');
+    console.log('API URL:', API_URL);
+    console.log('API KEY :', API_KEY.length);
+    
+    // 
+    const prompt = `
+      
+      
+      1. 
+      2. 
+      3. 
+      4. 
+      5. 
+      
+      JSON 
+      [
+        {
+          "type": "",
+          "content": "",
+          "options": ["A. A", "B. B", "C. C", "D. D"],
+          "answer": "A",
+          "explanation": ""
+        },
+        ...
+      ]
+      
+      :
+      ${text.substring(0, 5000)} // 
+    `;
+
+    // 
+    const requestData = {
+      model: "gemini-2.0-flash-exp", // 
+      messages: [
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.3,
+      max_tokens: 4000,
+    };
+
+    console.log('');
+    console.log('requestData:', Object.keys(requestData));
+    
+    // 
+    try {
+      const response = await axios.post(API_URL, requestData, {
+        headers: {
+          Authorization: `Bearer ${API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        timeout: 60000, // 60
+      });
+
+      console.log('Gemini API :', response.status);
+      console.log('Gemini API :', Object.keys(response.data));
+      
+      // 
+      let content = '';
+      
+      if (response.data.choices && response.data.choices[0] && response.data.choices[0].message) {
+        // OpenAI 
+        content = response.data.choices[0].message.content;
+        console.log('');
+      } else if (response.data.candidates && response.data.candidates[0] && response.data.candidates[0].content) {
+        // Gemini 
+        content = response.data.candidates[0].content.parts[0].text;
+        console.log('');
+      } else {
+        // 
+        content = JSON.stringify(response.data);
+        console.log('');
+      }
+      
+      if (!content) {
+        throw new Error("");
+      }
+      
+      console.log('AI :', content.substring(0, 200) + '...');
+
+      // JSON 
+      try {
+        // JSON 
+        const questions = JSON.parse(content);
+        if (Array.isArray(questions)) {
+          console.log('');
+          return questions;
+        }
+      } catch (parseError) {
+        console.log('');
+      }
+
+      // JSON 
+      const jsonMatch = content.match(/\[\s*\{.*\}\s*\]/s);
+      if (jsonMatch) {
+        try {
+          const jsonStr = jsonMatch[0];
+          console.log('JSON :', jsonStr.substring(0, 100) + '...');
+          const questions = JSON.parse(jsonStr);
+          if (Array.isArray(questions)) {
+            console.log('');
+            return questions;
+          }
+        } catch (extractError) {
+          console.error('', extractError);
+        }
+      }
+
+      // JSON 
+      console.log('');
+      return [
+        {
+          type: "",
+          content: "",
+          options: ["A. A", "B. B", "C. C", "D. D"],
+          answer: "A",
+          explanation: "",
+        },
+      ];
+    } catch (apiError) {
+      console.error('', apiError);
+      // 
+      if (apiError.response) {
+        // 
+        console.error('', apiError.response.status);
+        console.error('', apiError.response.headers);
+        console.error('', apiError.response.data);
+      } else if (apiError.request) {
+        // 
+        console.error('', apiError.request);
+      } else {
+        // 
+        console.error('', apiError.message);
+      }
+      
+      throw new Error(`API : ${apiError.message}`);
+    }
+  } catch (error) {
+    console.error('', error);
+    // 
+    return [
+      {
+        type: "",
+        content: "",
+        options: ["A. A", "B. B", "C. C", "D. D"],
+        answer: "A",
+        explanation: "",
+      },
+    ];
+  }
+}
+
+/**
+ * 
+ * @param question 
+ * @param options 
+ * @param answer 
+ * @returns 
+ */
+export async function generateExplanationWithAI(
+  question: string,
+  options: string[],
+  answer: string
+) {
+  try {
+    const optionsText =
+      options.length > 0 ? `\n:\n${options.join("\n")}` : "";
+
+    const prompt = `
+      
+      :
+      
+      :
+      ${optionsText}
+      :
+      
+      ,
+      
+      :
+    `;
+
+    // 
+    const requestData = {
+      model: "gemini-pro",
+      messages: [
+        { role: "system", content: "" },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.3,
+      max_tokens: 1000,
+    };
+
+    // 
+    const response = await axios.post(API_URL, requestData, {
+      headers: {
+        Authorization: `Bearer ${API_KEY}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    // 
+    let explanation = '';
+    
+    if (response.data.choices && response.data.choices[0] && response.data.choices[0].message) {
+      // OpenAI 
+      explanation = response.data.choices[0].message.content;
+    } else if (response.data.candidates && response.data.candidates[0] && response.data.candidates[0].content) {
+      // Gemini 
+      explanation = response.data.candidates[0].content.parts[0].text;
+    } else {
+      // 
+      explanation = JSON.stringify(response.data);
+    }
+
+    return explanation || "";
+  } catch (error) {
+    console.error("", error);
+    return `: ${error instanceof Error ? error.message : ""}`;
+  }
+}

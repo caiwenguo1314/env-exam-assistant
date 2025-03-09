@@ -1,0 +1,22 @@
+{
+  "id": "chatcmpl-rWKQDqk5V7G38xcOKF4hQNSBKla1S",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "环评师，全称是**环境影响评价工程师**，是指通过国家统一考试，取得《中华人民共和国环境影响评价工程师职业资格证书》，并经登记后，从事环境影响评价工作的专业技术人员。\n\n简单来说，他们是**评估项目对环境影响的专业人士**，负责编写环境影响报告书（表），提出环境保护措施，以确保项目建设和运营符合环保法规，减少对环境的负面影响。\n"
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "created": 1741511855,
+  "model": "gemini-2.0-flash-exp",
+  "object": "chat.completion",
+  "usage": {
+    "completion_tokens": 94,
+    "prompt_tokens": 11,
+    "total_tokens": 105
+  }
+}
