@@ -46,6 +46,8 @@ model Question {
   examId      Int
   exam        Exam     @relation(fields: [examId], references: [id])
   records     Record[]
+  hasChart    Boolean  @default(false) // 是否包含图表
+  externalId  String?  // 外部题目ID，用于匹配答案
 }
 
 model Record {

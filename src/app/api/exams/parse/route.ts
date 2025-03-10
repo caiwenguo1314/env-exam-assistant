@@ -213,101 +213,58 @@ export async function POST(request: NextRequest) {
  * 保存问题到数据库
  */
 async function saveQuestionsToDB(questions: any[], examId: number) {
-  const savedQuestions = [];
-  const errors = [];
-  const questionHash = new Map(); // 使用Map来处理问题重复问题
-
-  console.log(`尝试保存 ${questions.length} 个问题到数据库`);
-  
-  let successCount = 0;
-  let errorCount = 0;
-  let duplicateCount = 0;
-
-  // 先去重复问题
-  const uniqueQuestions = [];
-  
-  // 问题去重复处理
-  for (const question of questions) {
-    // 创建一个唯一的签名，用于检查问题重复
-    // 使用问题类型和内容的前50个字符作为签名
-    const contentSignature = question.content ? question.content.trim().substring(0, 50) : '';
-    const questionSignature = `${question.type || ''}-${contentSignature}`;
+  try {
+    console.log(`准备保存 ${questions.length} 个题目到数据库`);
     
-    if (!questionHash.has(questionSignature) && contentSignature.length > 5) {
-      questionHash.set(questionSignature, true);
-      uniqueQuestions.push(question);
-    } else {
-      duplicateCount++;
-      console.log(`找到重复问题: ${contentSignature}`);
-    }
-  }
-  
-  console.log(`去重复结果: 总数=${questions.length}, 重复=${duplicateCount}, 去重后=${uniqueQuestions.length}`);
-
-  // 保存去重后的问题
-  for (let i = 0; i < uniqueQuestions.length; i++) {
-    const question = uniqueQuestions[i];
-    try {
-      // 检查问题数据合法性
-      if (!question.content) {
-        throw new Error('问题内容为空');
-      }
-
-      // 打印当前处理的问题信息
-      console.log(`处理第 ${i+1}/${uniqueQuestions.length} 个问题:`, {
-        type: question.type,
-        content: question.content.substring(0, 30) + '...',
-        answer: question.answer,
-        category: question.category
-      });
-
-      // 处理选项字段，确保它是一个字符串
-      let optionsString = null;
-      if (question.options) {
-        if (Array.isArray(question.options)) {
-          optionsString = JSON.stringify(question.options);
-        } else if (typeof question.options === 'string') {
-          optionsString = question.options;
-        } else {
-          optionsString = JSON.stringify([question.options]);
-        }
-        console.log(`选项处理结果: ${optionsString.substring(0, 50)}...`);
-      }
-
-      // 直接使用 AI 返回的数据，进行保存处理
-      const savedQuestion = await prisma.question.create({
-        data: {
+    // 对提取的题目进行去重处理
+    const uniqueQuestions = removeDuplicateQuestions(questions);
+    console.log(`去重后剩余 ${uniqueQuestions.length} 个题目`);
+    
+    // 创建题目记录
+    const savedQuestions = [];
+    let savedCount = 0;
+    
+    for (const q of uniqueQuestions) {
+      try {
+        // 将选项转换为JSON字符串
+        const optionsJson = JSON.stringify(q.options || []);
+        
+        // 准备题目数据
+        const questionData = {
           examId: examId,
-          type: question.type || '未知类型',
-          content: question.content || '',
-          options: optionsString, // 将选项数组转换为 JSON 字符串
-          answer: question.answer || '',
-          explanation: question.explanation || null,
-          tags: question.category || null, // 将 category 存储到 tags 字段
-        },
-      });
-
-      console.log(`成功保存问题 ID: ${savedQuestion.id}`);
-      savedQuestions.push(savedQuestion);
-      successCount++;
-    } catch (error) {
-      errorCount++;
-      const errorDetail = {
-        index: i,
-        content: question.content?.substring(0, 30) || '未知',
-        error: error instanceof Error ? error.message : String(error)
-      };
-      errors.push(errorDetail);
-      console.error(`保存第 ${i+1} 个问题失败:`, errorDetail);
+          content: q.content || '',
+          type: q.type || '单选题',
+          options: optionsJson,
+          answer: q.answer || '',
+          explanation: q.explanation || '',
+          tags: q.category || '',
+          hasChart: q.hasChart === true, // 新增：是否包含图表标记
+          externalId: q.id || '', // 新增：保留原题目编号
+        };
+        
+        // 保存到数据库
+        const savedQuestion = await prisma.question.create({
+          data: questionData,
+        });
+        
+        // 将保存的题目添加到结果数组
+        savedQuestions.push({
+          ...savedQuestion,
+          tags: questionData.tags // 确保tags字段包含在返回中
+        });
+        
+        savedCount++;
+      } catch (error) {
+        console.error(`保存题目失败:`, error);
+      }
     }
+    
+    console.log(`成功保存 ${savedCount} 个题目到数据库`);
+    return savedQuestions; // 返回保存的题目数组而不是数量
+  } catch (error) {
+    console.error('保存题目到数据库失败:', error);
+    throw error;
   }
-
-  console.log(`问题保存统计: 成功=${successCount}, 失败=${errorCount}, 重复=${duplicateCount}`);
-  if (errors.length > 0) {
-    console.log(`保存失败的问题信息:`, errors);
-  }
-
-  return savedQuestions;
 }
 
 // 移除重复问题
