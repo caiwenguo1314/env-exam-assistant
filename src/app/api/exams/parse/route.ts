@@ -5,6 +5,7 @@ import { join } from 'path';
 import { prisma } from '@/lib/prisma';
 import { extractTextFromPdf } from '@/lib/services/pdf-service';
 import { extractQuestionsWithAI } from '@/lib/services/ai-service';
+import { extractAnswersWithAI } from '@/lib/services/ai-service'; // 新增导入
 
 export async function POST(request: NextRequest) {
   try {
@@ -52,6 +53,26 @@ export async function POST(request: NextRequest) {
     console.log('开始提取 PDF 文本');
     const pdfText = await extractTextFromPdf(fileBuffer);
     console.log(`提取了 ${pdfText.length} 个字符`);
+    
+    // 预处理答案部分（从文件末尾提取最后部分）
+    console.log('开始预处理答案部分');
+    const answerSectionSize = 3000; // 答案部分大约3000字符
+    const answerSection = pdfText.length > answerSectionSize 
+      ? pdfText.substring(pdfText.length - answerSectionSize) 
+      : pdfText;
+    
+    console.log(`提取的答案部分大小: ${answerSection.length} 个字符`);
+    console.log(`答案部分的前100个字符: ${answerSection.substring(0, 100).replace(/\n/g, ' ')}...`);
+    
+    // 使用AI提取答案信息
+    let answers = [];
+    try {
+      answers = await extractAnswersWithAI(answerSection);
+      console.log(`从答案部分提取了 ${answers.length} 个答案信息`);
+    } catch (error) {
+      console.error('提取答案部分时出错:', error);
+      // 即使出错也继续处理，不中断流程
+    }
 
     // 开始分页处理，分成更小的文本块以确保AI能够完整处理
     console.log('开始分页处理');
@@ -205,7 +226,7 @@ export async function POST(request: NextRequest) {
     console.log('开始保存问题到数据库');
     
     // 直接保存去重后的问题
-    const savedQuestions = await saveQuestionsToDB(uniqueQuestions, examId);
+    const savedQuestions = await saveQuestionsToDB(uniqueQuestions, examId, answers); // 传递答案信息
     console.log(`保存了 ${savedQuestions.length} 个问题到数据库`);
 
     // 按照分类组合问题
@@ -245,7 +266,7 @@ export async function POST(request: NextRequest) {
 /**
  * 保存问题到数据库
  */
-async function saveQuestionsToDB(questions: any[], examId: number) {
+async function saveQuestionsToDB(questions: any[], examId: number, answers: any[] = []) { // 新增answers参数
   try {
     console.log(`准备保存 ${questions.length} 个题目到数据库`);
     
@@ -253,43 +274,74 @@ async function saveQuestionsToDB(questions: any[], examId: number) {
     const uniqueQuestions = removeDuplicateQuestions(questions);
     console.log(`去重后剩余 ${uniqueQuestions.length} 个题目`);
     
+    // 如果有答案信息，则进行答案匹配和题目信息补充
+    if (answers && answers.length > 0) {
+      console.log(`开始匹配答案信息，共 ${answers.length} 个答案`);
+      
+      const answerMap = new Map();
+      answers.forEach(answer => {
+        if (answer.externalId) {
+          answerMap.set(answer.externalId, answer);
+        }
+      });
+      
+      console.log(`建立答案映射表，共 ${answerMap.size} 个答案`);
+      
+      // 匹配答案信息并补充题目信息
+      for (const question of uniqueQuestions) {
+        if (question.content) {
+          // 匹配答案信息
+          const idMatch = question.content.match(/^([\d\-\u4e00-\u9fa5\u7ec3\u4e60]+)/);
+          const externalId = idMatch ? idMatch[1] : question.externalId;
+          
+          if (externalId && answerMap.has(externalId)) {
+            const answerInfo = answerMap.get(externalId);
+            console.log(`匹配到答案信息，编号: ${externalId}`);
+            
+            // 补充题目信息
+            if (answerInfo.answer && !question.answer) {
+              question.answer = answerInfo.answer;
+            }
+            
+            if (answerInfo.type && !question.type) {
+              question.type = answerInfo.type;
+            }
+          }
+        }
+      }
+    }
+    
     // 创建题目记录
     const savedQuestions = [];
     let savedCount = 0;
     
     for (const q of uniqueQuestions) {
-      try {
-        // 将选项转换为JSON字符串
-        const optionsJson = JSON.stringify(q.options || []);
+      const optionsJson = JSON.stringify(q.options || []);
         
-        // 准备题目数据
-        const questionData = {
-          examId: examId,
-          content: q.content || '',
-          type: q.type || '单选题',
-          options: optionsJson,
-          answer: q.answer || '',
-          explanation: q.explanation || '',
-          tags: q.category || '',
-          hasChart: q.hasChart === true, // 新增：是否包含图表标记
-          externalId: q.id || '', // 新增：保留原题目编号
-        };
+      // 准备题目数据
+      const questionData = {
+        examId: parseInt(examId.toString()),
+        content: q.content || '',
+        type: q.type || '单选题',
+        options: optionsJson,
+        answer: q.answer || '',
+        explanation: q.explanation || '',
+        tags: q.category || '',
+        externalId: q.id || '', // 保留原题目编号
+      };
         
-        // 保存到数据库
-        const savedQuestion = await prisma.question.create({
-          data: questionData,
-        });
+      // 保存到数据库
+      const savedQuestion = await prisma.question.create({
+        data: questionData,
+      });
         
-        // 将保存的题目添加到结果数组
-        savedQuestions.push({
-          ...savedQuestion,
-          tags: questionData.tags // 确保tags字段包含在返回中
-        });
+      // 将保存的题目添加到结果数组
+      savedQuestions.push({
+        ...savedQuestion,
+        tags: questionData.tags // 确保tags字段包含在返回中
+      });
         
-        savedCount++;
-      } catch (error) {
-        console.error(`保存题目失败:`, error);
-      }
+      savedCount++;
     }
     
     console.log(`成功保存 ${savedCount} 个题目到数据库`);
