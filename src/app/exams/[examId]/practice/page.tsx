@@ -526,7 +526,7 @@ export default function PracticePage({ params }: { params: Promise<{ examId: str
         
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
           {/* 题目内容区域 - 使用固定高度的容器 */}
-          <div className="flex justify-between items-start mb-4">
+          <div className="flex justify-between items-start mb-4 px-2">
             <h2 className="text-xl font-medium">
               <span className="mr-2">{currentQuestionIndex + 1}.</span>
               {currentQuestion.content}
@@ -538,7 +538,7 @@ export default function PracticePage({ params }: { params: Promise<{ examId: str
           </div>
           
           {/* 选项区域 - 在固定高度的容器内滚动 */}
-          <div className="h-[340px] overflow-y-auto mb-6">
+          <div className="h-[340px] overflow-y-auto mb-6 px-2">
             <div className="space-y-3">
               {options.map((option, index) => {
                 const optionLetter = String.fromCharCode(65 + index);
@@ -590,23 +590,6 @@ export default function PracticePage({ params }: { params: Promise<{ examId: str
                 );
               })}
             </div>
-          
-            {/* 解析区域 - 包含在选项区域内 */}
-            {showExplanation && (
-              <div className="border-t pt-4 mt-4">
-                <div className="mb-2">
-                  <span className="font-medium text-primary-600">正确答案: </span>
-                  {currentQuestion.answer}
-                </div>
-                
-                {currentQuestion.explanation && (
-                  <div className="text-gray-600">
-                    <span className="font-medium">解析: </span>
-                    {currentQuestion.explanation}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
           
           {/* 图表区域 */}
@@ -618,8 +601,8 @@ export default function PracticePage({ params }: { params: Promise<{ examId: str
         </div>
         
         {/* 选项卡区域 */}
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-md py-3 px-4 z-10">
-          <div className="max-w-4xl mx-auto flex justify-between items-center">
+        <div className="py-3 border-t border-b my-4 bg-gray-50 sticky">
+          <div className="flex justify-between items-center">
             <div className="flex items-center space-x-4">
               <button 
                 onClick={() => router.push(`/exams/${examId}`)}
@@ -680,6 +663,23 @@ export default function PracticePage({ params }: { params: Promise<{ examId: str
             </div>
           </div>
         </div>
+        
+        {/* 解析区域 */}
+        {showExplanation && (
+          <div className="pt-4 px-2">
+            <div className="mb-2">
+              <span className="font-medium text-primary-600">正确答案: </span>
+              {currentQuestion.answer}
+            </div>
+            
+            {currentQuestion.explanation && (
+              <div className="text-gray-600">
+                <span className="font-medium">解析: </span>
+                {currentQuestion.explanation}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
