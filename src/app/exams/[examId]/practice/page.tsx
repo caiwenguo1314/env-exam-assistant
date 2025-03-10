@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { decodeUnicodeEscapes } from '@/lib/utils/decode-unicode';
+import { decodeUnicode } from '@/lib/utils/decode-unicode';
 
 // 题目接口
 interface Question {
@@ -34,10 +34,13 @@ interface UserAnswer {
 // 练习模式类型
 type PracticeMode = 'practice' | 'test';
 
-export default function PracticePage({ params }: { params: { examId: string } }) {
+export default function PracticePage({ params }: { params: Promise<{ examId: string }> }) {
   const router = useRouter();
-  const { examId } = params;
   
+  // 解决Next.js 15.2.1版本中的sync-dynamic-apis问题
+  // 移除直接访问params对象内部属性的代码
+  const [examId, setExamId] = useState<string>('');
+
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
   const [exam, setExam] = useState<Exam | null>(null);
@@ -54,8 +57,27 @@ export default function PracticePage({ params }: { params: { examId: string } })
   const [practiceMode, setPracticeMode] = useState<PracticeMode>('practice');
   const [testCompleted, setTestCompleted] = useState<boolean>(false);
 
+  const [showQuestionDropdown, setShowQuestionDropdown] = useState<boolean>(false);
+
+  useEffect(() => {
+    async function resolveParams() {
+      try {
+        // 解析params中的examId
+        const resolvedParams = await params;
+        setExamId(resolvedParams.examId);
+      } catch (error) {
+        console.error('无法解析路由参数:', error);
+        setError('无法加载考试信息');
+      }
+    }
+
+    resolveParams();
+  }, [params]);
+
   useEffect(() => {
     async function fetchExamDetail() {
+      if (!examId) return;
+
       try {
         const response = await fetch(`/api/exams/${examId}`);
         if (!response.ok) {
@@ -67,8 +89,8 @@ export default function PracticePage({ params }: { params: { examId: string } })
         if (data.questions && Array.isArray(data.questions)) {
           data.questions = data.questions.map(q => ({
             ...q,
-            content: decodeUnicodeEscapes(q.content),
-            explanation: decodeUnicodeEscapes(q.explanation || ''),
+            content: decodeUnicode(q.content),
+            explanation: decodeUnicode(q.explanation || ''),
           }));
         }
         
@@ -96,14 +118,14 @@ export default function PracticePage({ params }: { params: { examId: string } })
   function parseOptions(optionsStr: string): string[] {
     try {
       // 处理选项中可能的乱码
-      const decodedOptionsStr = decodeUnicodeEscapes(optionsStr);
+      const decodedOptionsStr = decodeUnicode(optionsStr);
       const options = JSON.parse(decodedOptionsStr);
       if (Array.isArray(options)) {
         return options;
       }
       return [decodedOptionsStr];
     } catch (e) {
-      return [decodeUnicodeEscapes(optionsStr)];
+      return [decodeUnicode(optionsStr)];
     }
   }
 
@@ -376,6 +398,18 @@ export default function PracticePage({ params }: { params: { examId: string } })
     );
   };
 
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      const target = event.target as HTMLElement;
+      if (showQuestionDropdown && !target.closest('.relative')) {
+        setShowQuestionDropdown(false);
+      }
+    }
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showQuestionDropdown]);
+
   if (loading) {
     return (
       <div className="container mx-auto px-4">
@@ -442,8 +476,51 @@ export default function PracticePage({ params }: { params: { examId: string } })
       <div className="max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-bold">{exam.title || `考试 ${exam.id}`}</h1>
-          <div className="text-sm bg-gray-100 px-3 py-1 rounded-full">
-            题目 {currentQuestionIndex + 1} / {exam.questions.length}
+          
+          {/* 题号下拉菜单 */}
+          <div className="relative">
+            <div 
+              className="flex items-center text-sm bg-gray-100 px-3 py-1 rounded-full cursor-pointer hover:bg-gray-200"
+              onClick={() => setShowQuestionDropdown(prev => !prev)}
+            >
+              题目 {currentQuestionIndex + 1} / {exam.questions.length}
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
+            
+            {/* 下拉菜单 */}
+            {showQuestionDropdown && (
+              <div className="absolute right-0 mt-2 w-64 max-h-80 overflow-y-auto bg-white rounded-md shadow-lg z-20">
+                <div className="p-2">
+                  <div className="mb-2 text-xs text-gray-500 font-medium">跳转到题目</div>
+                  <div className="grid grid-cols-5 gap-2">
+                    {exam.questions.map((q, idx) => {
+                      // 获取题目状态
+                      const answer = userAnswers.find(a => a.questionId === q.id);
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            jumpToQuestion(idx);
+                            setShowQuestionDropdown(false);
+                          }}
+                          className={`flex justify-center items-center w-full p-1 text-sm rounded
+                            ${idx === currentQuestionIndex ? 'bg-primary-600 text-white' : ''}
+                            ${answer?.isCorrect ? 'text-green-600 font-medium' : ''}
+                            ${answer && !answer.isCorrect ? 'text-red-600 font-medium' : ''}
+                            ${!answer && idx !== currentQuestionIndex ? 'text-gray-600' : ''}
+                          `}
+                        >
+                          {idx + 1}
+                          {q.hasChart && <span className="ml-1 text-xs text-blue-400">●</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
         
@@ -538,9 +615,11 @@ export default function PracticePage({ params }: { params: { examId: string } })
               <img src={`/charts/${currentQuestion.externalId}.png`} alt="图表" />
             </div>
           )}
-          
-          {/* 按钮区域 - 固定在底部 */}
-          <div className="flex justify-between items-center pt-3 border-t">
+        </div>
+        
+        {/* 选项卡区域 */}
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-md py-3 px-4 z-10">
+          <div className="max-w-4xl mx-auto flex justify-between items-center">
             <div className="flex items-center space-x-4">
               <button 
                 onClick={() => router.push(`/exams/${examId}`)}
@@ -599,76 +678,6 @@ export default function PracticePage({ params }: { params: { examId: string } })
                 </button>
               )}
             </div>
-          </div>
-        </div>
-        
-        {/* 题目导航区域 */}
-        <div className="mb-4">
-          {/* 进度条 */}
-          <div className="flex justify-center mb-4">
-            <div className="flex space-x-2">
-              {exam.questions.map((question, index) => {
-                // 获取题目状态
-                const answer = userAnswers.find(a => a.questionId === question.id);
-                
-                return (
-                  <div 
-                    key={index} 
-                    onClick={() => jumpToQuestion(index)}
-                    className={`relative w-3 h-3 rounded-full cursor-pointer transition-all ${index === currentQuestionIndex ? 'bg-primary-600 scale-125' : answer?.isCorrect ? 'bg-green-500' : answer ? 'bg-red-500' : 'bg-gray-300'}`}
-                    title={`${question.externalId || `题目 ${index + 1}`}${question.hasChart ? ' (图表题)' : ''}`}
-                  >
-                    {/* 图表题标识 */}
-                    {question.hasChart && (
-                      <div className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-blue-500"></div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          
-          {/* 题目导航 */}
-          <div className="flex justify-between">
-            <button
-              onClick={handlePrevQuestion}
-              disabled={currentQuestionIndex === 0}
-              className={`flex items-center text-sm px-2 py-1 rounded-md transition-colors ${currentQuestionIndex === 0 ? 'text-gray-400 cursor-not-allowed' : 'text-primary-600 hover:bg-primary-50'}`}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              上一题
-            </button>
-            
-            <div className="text-sm text-gray-600">
-              {currentQuestionIndex + 1} / {exam.questions.length}
-              {currentQuestion.hasChart && (
-                <span className="ml-2 text-blue-600 text-xs">图表题</span>
-              )}
-            </div>
-            
-            <button
-              onClick={practiceMode === 'practice' ? handleNextQuestion : handleSubmitAnswer}
-              disabled={practiceMode === 'test' && ((isMultiChoice && selectedOptions.length === 0) || (!isMultiChoice && !selectedOption))}
-              className={`flex items-center text-sm px-2 py-1 rounded-md transition-colors ${(practiceMode === 'test' && ((isMultiChoice && selectedOptions.length === 0) || (!isMultiChoice && !selectedOption))) ? 'text-gray-400 cursor-not-allowed' : 'text-primary-600 hover:bg-primary-50'}`}
-            >
-              {practiceMode === 'practice' || showExplanation ? (
-                <>
-                  下一题
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </>
-              ) : (
-                <>
-                  提交答案
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                </>
-              )}
-            </button>
           </div>
         </div>
       </div>
